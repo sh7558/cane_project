@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 위치 데이터</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key="></script> <!-- Google Maps API -->
+    <script src="/socket.io/socket.io.js"></script> <!-- Socket.IO 클라이언트 라이브러리 -->
+    <style>
+        #map {
+            height: 500px;
+            width: 100%;
+        }
+        #history {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>접속자의 실시간 위치 데이터</h1>
+    <input type="text" id="nameInput" placeholder="이름 입력">
+    <button id="getLocationButton">위치 가져오기</button>
+    <div id="map"></div>
+
+    <!-- 위치 기록을 표시할 영역 -->
+    <div id="history">
+        <h3>접근 기록</h3>
+        <ul id="locationHistory"></ul>
+    </div>
+
+    <script>
+        let map, marker;
+        const socket = io('https://36.38.168.71:3000'); // 서버 주소
+
+        // Google Maps 초기화 함수
+        function initMap(latitude, longitude) {
+            const userLocation = { lat: latitude, lng: longitude };
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 15,
+                center: userLocation,
+            });
+            marker = new google.maps.Marker({
+                position: userLocation,
+                map: map,
+                title: "You are here",
+            });
+        }
+
+        // 마커 위치 업데이트 함수
+        function updateMarker(latitude, longitude) {
+            const newPosition = { lat: latitude, lng: longitude };
+            marker.setPosition(newPosition);
+            map.setCenter(newPosition);
+        }
+
+        // 위치 정보를 서버로 전송하는 함수
+        function sendLocationToServer(name, latitude, longitude) {
+            socket.emit('sendLocation', { name, latitude, longitude });
+        }
+
+        // 위치 기록을 화면에 표시하는 함수
+        function displayHistory(history) {
+            const locationHistory = document.getElementById('locationHistory');
+            locationHistory.innerHTML = ''; // 기존 기록을 초기화
+
+            history.forEach(record => {
+                const listItem = document.createElement('li');
+                
+                // 기록 정보와 삭제 버튼 추가
+                listItem.innerHTML = `
+                    ${record.name} / ${record.time} / 
+                    <a href="#" onclick="centerMap(${record.latitude}, ${record.longitude})">위도: ${record.latitude}, 경도: ${record.longitude}</a>
+                    <button onclick="deleteRecord(${record.id})">삭제</button>
+                `;
+                locationHistory.appendChild(listItem);
+            });
+        }
+
+        // 지도 중심을 클릭된 위치로 이동하는 함수
+        function centerMap(latitude, longitude) {
+            const newPosition = { lat: latitude, lng: longitude };
+            map.setCenter(newPosition);
+            marker.setPosition(newPosition);
+        }
+
+        // 기록 삭제 요청 함수
+        function deleteRecord(recordId) {
+            socket.emit('deleteRecord', recordId);
+        }
+
+        // 버튼 클릭 시 위치 정보 가져오기 및 지도에 표시
+        document.getElementById('getLocationButton').addEventListener('click', () => {
+            const name = document.getElementById('nameInput').value || 'Unknown';
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition((position) => {
+                    const latitude = position.coords.latitude;
+                    const longitude = position.coords.longitude;
+
+                    // 지도 초기화 및 위치 정보 표시
+                    if (!map || !marker) {
+                        initMap(latitude, longitude);
+                    } else {
+                        updateMarker(latitude, longitude);
+                    }
+
+                    // 위치 정보를 서버로 전송
+                    sendLocationToServer(name, latitude, longitude);
+                }, (error) => {
+                    console.error('위치 정보를 가져올 수 없습니다:', error);
+                }, {
+                    enableHighAccuracy: true,
+                });
+            } else {
+                alert('이 브라우저는 위치 서비스를 지원하지 않습니다.');
+            }
+        });
+
+        // 서버에서 새 위치 기록을 수신하여 화면에 표시
+        socket.on('updateHistory', (history) => {
+            displayHistory(history);
+        });
+    </script>
+</body>
+</html>
