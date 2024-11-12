@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 위치 데이터</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key="></script> <!-- Google Maps API -->
+    <script src="/socket.io/socket.io.js"></script> <!-- Socket.IO 클라이언트 라이브러리 -->
+    <style>
+        /* 전체 배경 및 폰트 설정 */
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+            background-image: url('https://www.transparenttextures.com/patterns/white-wall.png');
+        }
+
+        h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 지도 스타일 */
+        #map {
+            height: 500px;
+            width: 100%;
+            max-width: 800px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
+        /* 버튼 스타일 */
+        #getLocationButton {
+            padding: 12px 18px;
+            font-size: 16px;
+            color: #fff;
+            background-color: #007bff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.1s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #getLocationButton:hover {
+            background-color: #0056b3;
+        }
+
+        #getLocationButton:active {
+            transform: scale(0.98);
+        }
+
+        /* 기록 섹션 스타일 */
+        #history {
+            width: 100%;
+            max-width: 800px;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        #history h3 {
+            font-size: 20px;
+            margin-top: 0;
+            color: #007bff;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+
+        /* 위치 기록 목록 스타일 */
+        #locationHistory {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        /* 위치 기록 항목 스타일 - 줄무늬 */
+        #locationHistory li {
+            padding: 12px 20px;
+            margin: 0;
+            border-bottom: 1px solid #d9e2ec;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+
+        #locationHistory li:nth-child(odd) {
+            background-color: #f0f8ff;
+        }
+
+        #locationHistory li:nth-child(even) {
+            background-color: #ffffff;
+        }
+
+        #locationHistory li:hover {
+            background-color: #e2f0fc;
+        }
+
+        #locationHistory a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        /* 삭제 버튼 스타일 */
+        #locationHistory button {
+            padding: 6px 10px;
+            font-size: 12px;
+            color: #fff;
+            background-color: #ff4d4d;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #locationHistory button:hover {
+            background-color: #d12e2e;
+        }
+    </style>
+</head>
+<body>
+    <h1>접속자의 실시간 위치 데이터</h1>
+    <button id="getLocationButton">위치 가져오기</button>
+    <div id="map"></div>
+
+    <div id="history">
+        <h3>접근 기록</h3>
+        <ul id="locationHistory"></ul>
+    </div>
+
+    <script>
+        let map, marker;
+        const socket = io('https://36.38.168.71:3000'); // 서버 주소
+
+        function initMap(latitude, longitude) {
+            const userLocation = { lat: latitude, lng: longitude };
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 15,
+                center: userLocation,
+            });
+            marker = new google.maps.Marker({
+                position: userLocation,
+                map: map,
+                title: "You are here",
+            });
+        }
+
+        function updateMarker(latitude, longitude) {
+            const newPosition = { lat: latitude, lng: longitude };
+            marker.setPosition(newPosition);
+            map.setCenter(newPosition);
+        }
+
+        function sendLocationToServer(latitude, longitude) {
+            socket.emit('sendLocation', { latitude, longitude });
+        }
+
+        function displayHistory(history) {
+            const locationHistory = document.getElementById('locationHistory');
+            locationHistory.innerHTML = ''; // 기존 기록을 초기화
+
+            history.forEach(record => {
+                const listItem = document.createElement('li');
+                listItem.innerHTML = `
+                    ${record.time} / 
+                    <a href="#" onclick="centerMap(${record.latitude}, ${record.longitude})">
+                        위도: ${record.latitude}, 경도: ${record.longitude}
+                    </a>
+                    <button onclick="deleteRecord(${record.id})">삭제</button>
+                `;
+                locationHistory.appendChild(listItem);
+            });
+        }
+
+        function centerMap(latitude, longitude) {
+            const newPosition = { lat: latitude, lng: longitude };
+            map.setCenter(newPosition);
+            marker.setPosition(newPosition);
+        }
+
+        function deleteRecord(recordId) {
+            socket.emit('deleteRecord', recordId);
+        }
+
+        document.getElementById('getLocationButton').addEventListener('click', () => {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition((position) => {
+                    const latitude = position.coords.latitude;
+                    const longitude = position.coords.longitude;
+
+                    if (!map || !marker) {
+                        initMap(latitude, longitude);
+                    } else {
+                        updateMarker(latitude, longitude);
+                    }
+                    sendLocationToServer(latitude, longitude);
+                }, (error) => {
+                    console.error('위치 정보를 가져올 수 없습니다:', error);
+                }, {
+                    enableHighAccuracy: true,
+                });
+            } else {
+                alert('이 브라우저는 위치 서비스를 지원하지 않습니다.');
+            }
+        });
+
+        socket.on('updateHistory', (history) => {
+            displayHistory(history);
+        });
+    </script>
+</body>
+</html>
